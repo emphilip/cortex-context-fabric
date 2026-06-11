@@ -1,0 +1,33 @@
+[project]
+name = "hive-mind"
+version = "0.0.0"
+description = "Open-source, self-hostable enterprise context engineering, exposed as MCP."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[tool.uv.workspace]
+members = [
+  "packages/shared-py",
+  "services/pipeline",
+  "services/ingestion",
+]
+
+[tool.uv.sources]
+hive-mind-shared = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "data", "volumes"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF", "TID", "PLE", "PLW"]
+ignore = ["E501"]   # line length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["services", "packages"]
+addopts = "-ra -q"

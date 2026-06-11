@@ -1,0 +1,56 @@
+# Node / TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+.next/
+out/
+.turbo/
+storybook-static/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.venv.*/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Docker / data
+data/
+volumes/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# Claude Code per-machine state (skills + slash commands are committed; local
+# permissions are not).
+.claude/settings.local.json
+
+# uv / pnpm
+.uv-cache/
+pnpm-debug.log*
+
+# Generated
+coverage/
+playwright-report/
+test-results/

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-06-11
+goal: First end-to-end working slice of the contextual-layer pipeline, with
+  embeddings running on a local Ollama service in compose.

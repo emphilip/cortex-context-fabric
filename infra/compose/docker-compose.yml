@@ -1,0 +1,148 @@
+name: hive-mind
+
+services:
+  # -----------------------------------------------------------------------
+  # Storage layer
+  # -----------------------------------------------------------------------
+  postgres:
+    build:
+      context: ../postgres
+      dockerfile: Dockerfile
+    image: hive-mind/postgres-age:local
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: hivemind
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d hivemind"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    profiles: [dev]
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    profiles: [dev]
+
+  valkey:
+    image: valkey/valkey:8.0-alpine
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    profiles: [dev]
+
+  # -----------------------------------------------------------------------
+  # Embeddings backend (local Ollama; Cloud is documented but unused in v0
+  # because /api/embed is gated for the reference account — see
+  # openspec/changes/bootstrap-thin-mvp/design.md D1).
+  # -----------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:0.30.7
+    entrypoint: ["/bin/sh", "/opt/hive-mind/ollama-entrypoint.sh"]
+    environment:
+      OLLAMA_EMBEDDING_MODEL: ${HIVE_MIND__OLLAMA__EMBEDDING_MODEL:-nomic-embed-text}
+    volumes:
+      - ollama-data:/root/.ollama
+      - ../ollama/entrypoint.sh:/opt/hive-mind/ollama-entrypoint.sh:ro
+      - ../ollama/healthcheck.sh:/opt/hive-mind/ollama-healthcheck.sh:ro
+    ports:
+      - "11434:11434"
+    healthcheck:
+      # Healthy only after the configured embedding model has been pulled.
+      # The entrypoint script does the pull on first start; the healthcheck
+      # interval + retries below tolerate a one-time ~270 MB download.
+      test: ["CMD", "/bin/sh", "/opt/hive-mind/ollama-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    profiles: [dev]
+
+  # -----------------------------------------------------------------------
+  # Application services (built in Phase D/E/F/G)
+  # -----------------------------------------------------------------------
+  pipeline:
+    build:
+      context: ../..
+      dockerfile: services/pipeline/Dockerfile
+    image: hive-mind/pipeline:local
+    env_file: ../../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      qdrant:   { condition: service_healthy }
+      valkey:   { condition: service_healthy }
+      ollama:   { condition: service_healthy }
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    profiles: [dev]
+
+  mcp-server:
+    build:
+      context: ../..
+      dockerfile: services/mcp-server/Dockerfile
+    image: hive-mind/mcp-server:local
+    env_file: ../../.env
+    depends_on:
+      pipeline: { condition: service_healthy }
+    ports:
+      # Host port is configurable to dodge collisions; container always 8080.
+      - "${HIVE_MIND__MCP__HOST_PORT:-8080}:8080"
+    profiles: [dev]
+
+  ingestion:
+    build:
+      context: ../..
+      dockerfile: services/ingestion/Dockerfile
+    image: hive-mind/ingestion:local
+    env_file: ../../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      qdrant:   { condition: service_healthy }
+      ollama:   { condition: service_healthy }
+    # No port — used via `docker compose exec ingestion ...`
+    command: ["sleep", "infinity"]
+    profiles: [dev]
+
+  admin-ui:
+    build:
+      context: ../..
+      dockerfile: services/admin-ui/Dockerfile
+    image: hive-mind/admin-ui:local
+    env_file: ../../.env
+    depends_on:
+      pipeline: { condition: service_healthy }
+    ports:
+      - "3000:3000"
+    profiles: [dev]
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  valkey-data:
+  ollama-data:

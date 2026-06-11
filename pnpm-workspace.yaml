@@ -1,0 +1,4 @@
+packages:
+  - packages/*
+  - services/mcp-server
+  - services/admin-ui

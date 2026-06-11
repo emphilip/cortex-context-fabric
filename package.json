@@ -1,0 +1,21 @@
+{
+  "name": "hive-mind",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Open-source, self-hostable enterprise context engineering, exposed as MCP.",
+  "license": "MIT",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "format": "pnpm -r format"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
