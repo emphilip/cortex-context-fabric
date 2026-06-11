@@ -80,3 +80,89 @@ export interface IngestEvent {
   source_uri: string;
   content_hash: string;
 }
+
+// --- Admin: catalog read ---------------------------------------------------
+
+export interface EntityListItem {
+  entity_id: string;
+  tenant: string;
+  source: string;
+  source_uri: string;
+  title?: string | null;
+  classification: string;
+  freshness_state: string;
+  updated_at: string;
+  tombstoned_at?: string | null;
+}
+
+export interface EntityRef {
+  entity_id: string;
+  title?: string | null;
+  source_uri: string;
+}
+
+export interface EntityLineage {
+  parent?: EntityRef | null;
+  children: readonly EntityRef[];
+}
+
+export interface Entity extends EntityListItem {
+  body: string;
+  content_hash: string;
+  metadata: Record<string, unknown>;
+  source_revision?: string | null;
+  parent_entity_id?: string | null;
+  created_at: string;
+  ingested_at: string;
+  last_verified_at: string;
+  lineage: EntityLineage;
+}
+
+export interface EntityListResponse {
+  items: readonly EntityListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// --- Admin: vector search --------------------------------------------------
+
+export interface VectorSearchHit {
+  entity_id: string;
+  score: number;
+  source: string;
+  source_uri: string;
+  title?: string | null;
+  classification: string;
+  snippet: string;
+  collection?: string;
+}
+
+export interface VectorSearchResponse {
+  hits: readonly VectorSearchHit[];
+  model: string;
+  provider: string;
+  tokens_in: number;
+}
+
+// --- Admin: ingestion ------------------------------------------------------
+
+export interface ConnectorStatus {
+  name: string;
+  supported: boolean;
+  reason?: string;
+}
+
+export type IngestionRunStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface IngestionRun {
+  run_id: string;
+  connector: string;
+  repo?: string;
+  started_at: string;
+  finished_at?: string | null;
+  status: IngestionRunStatus;
+  parents?: number;
+  chunks?: number;
+  error?: string | null;
+}

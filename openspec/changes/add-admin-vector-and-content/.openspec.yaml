@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-06-11
+goal: "Make the catalogue legible: an operator can search the vector space,
+  browse and inspect any entity, and trigger ingestion from the UI."

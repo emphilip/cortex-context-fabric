@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from hive_mind_pipeline.providers import OllamaEmbeddings
 from hive_mind_pipeline.storage.catalog import CatalogHit, CatalogStore
 from hive_mind_pipeline.storage.vector import VectorHit, VectorIndex
+from hive_mind_pipeline.util import reciprocal_rank_fusion
+
+__all__ = ["Candidate", "reciprocal_rank_fusion", "run"]
 
 
 @dataclass
@@ -25,16 +28,6 @@ class Candidate:
     text: str
     classification: str
     via: list[str]
-
-
-def reciprocal_rank_fusion(
-    ranked_lists: list[list[str]], *, k: int = 60
-) -> dict[str, float]:
-    scores: dict[str, float] = {}
-    for ranking in ranked_lists:
-        for rank, eid in enumerate(ranking):
-            scores[eid] = scores.get(eid, 0.0) + 1.0 / (k + rank + 1)
-    return scores
 
 
 async def run(

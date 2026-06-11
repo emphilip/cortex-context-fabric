@@ -46,6 +46,9 @@ Thumbs.db
 # permissions are not).
 .claude/settings.local.json
 
+# OpenSpec CLI-generated agent skills cache (mirrors .claude/skills/).
+.agents/
+
 # uv / pnpm
 .uv-cache/
 pnpm-debug.log*

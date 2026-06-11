@@ -6,12 +6,15 @@ from dataclasses import dataclass
 
 from qdrant_client import AsyncQdrantClient, models
 
+from hive_mind_pipeline.util import reciprocal_rank_fusion
+
 
 @dataclass
 class VectorHit:
     entity_id: str
     score: float
     payload: dict
+    collection: str | None = None
 
 
 class VectorIndex:
@@ -73,11 +76,73 @@ class VectorIndex:
             )
             for p in results.points:
                 hits.append(
-                    VectorHit(entity_id=str(p.id), score=float(p.score), payload=dict(p.payload or {}))
+                    VectorHit(
+                        entity_id=str(p.id),
+                        score=float(p.score),
+                        payload=dict(p.payload or {}),
+                        collection=coll,
+                    )
                 )
         # Truncate after the cross-source merge.
         hits.sort(key=lambda h: h.score, reverse=True)
         return hits[:limit]
+
+    async def search_all(
+        self,
+        *,
+        vector: list[float],
+        limit: int,
+        filters: dict | None = None,
+    ) -> list[VectorHit]:
+        """Cross-collection search with RRF fusion.
+
+        Used by the admin-side `/search/vector` endpoint. Queries every
+        collection matching the configured prefix (or every collection if no
+        prefix), gathers per-collection rankings, fuses with Reciprocal Rank
+        Fusion, then attaches the fused score and returns the top `limit`.
+        """
+        all_collections = (await self._client.get_collections()).collections
+        target_names = [
+            c.name
+            for c in all_collections
+            if not self._prefix or c.name.startswith(self._prefix)
+        ]
+
+        qfilter = self._build_filter(filters)
+        rankings: list[list[str]] = []
+        # Keep a hit lookup so we can rebuild the merged payload/collection at
+        # the end without a second round-trip.
+        lookup: dict[str, VectorHit] = {}
+        for coll in target_names:
+            results = await self._client.query_points(
+                collection_name=coll,
+                query=vector,
+                limit=limit,
+                query_filter=qfilter,
+            )
+            ranking: list[str] = []
+            for p in results.points:
+                eid = str(p.id)
+                ranking.append(eid)
+                # First hit wins for payload/collection (it has the highest
+                # per-collection score for that point).
+                if eid not in lookup:
+                    lookup[eid] = VectorHit(
+                        entity_id=eid,
+                        score=float(p.score),
+                        payload=dict(p.payload or {}),
+                        collection=coll,
+                    )
+            if ranking:
+                rankings.append(ranking)
+
+        fused = reciprocal_rank_fusion(rankings)
+        merged: list[VectorHit] = []
+        for eid, fused_score in sorted(fused.items(), key=lambda kv: kv[1], reverse=True):
+            hit = lookup[eid]
+            hit.score = fused_score
+            merged.append(hit)
+        return merged[:limit]
 
     def _build_filter(self, filters: dict | None) -> models.Filter | None:
         if not filters:

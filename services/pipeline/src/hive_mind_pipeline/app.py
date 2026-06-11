@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from hive_mind_shared import (
     ContextFragment,
@@ -23,6 +25,7 @@ from hive_mind_shared import (
 from opentelemetry import trace
 from starlette.routing import Route
 
+from hive_mind_pipeline import admin_routes
 from hive_mind_pipeline.providers import OllamaEmbeddings
 from hive_mind_pipeline.stages import assemble, hybrid_retrieval, identity
 from hive_mind_pipeline.storage.audit import AuditStore
@@ -52,6 +55,8 @@ async def lifespan(app: FastAPI):
         model=cfg.ollama.embedding_model,
         api_key=cfg.ollama.api_key,
     )
+    ingestion_url = os.environ.get("HIVE_MIND__INGESTION__URL", "http://ingestion:8100")
+    ingestion_client = httpx.AsyncClient(base_url=ingestion_url, timeout=30.0)
     await catalog.connect()
     await audit.connect()
     app.state.cfg = cfg
@@ -60,6 +65,7 @@ async def lifespan(app: FastAPI):
     app.state.audit = audit
     app.state.vector = vector
     app.state.embeddings = embeddings
+    app.state.ingestion_client = ingestion_client
     try:
         yield
     finally:
@@ -67,10 +73,12 @@ async def lifespan(app: FastAPI):
         await audit.close()
         await vector.close()
         await embeddings.close()
+        await ingestion_client.aclose()
 
 
 app = FastAPI(title="hive-mind-pipeline", lifespan=lifespan)
 app.router.routes.append(Route("/metrics", metrics_app))
+app.include_router(admin_routes.router)
 
 
 @app.get("/healthz")

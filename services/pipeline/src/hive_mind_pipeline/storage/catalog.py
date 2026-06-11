@@ -94,6 +94,117 @@ class CatalogStore:
             )
             return dict(row) if row else None
 
+    async def list_entities(
+        self,
+        *,
+        tenant: str,
+        source: str | None = None,
+        classification: str | None = None,
+        freshness_state: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Admin-side list with indexed filters. Returns (rows, total)."""
+        pool = self._require_pool()
+        # Build WHERE clause with optional filters; each filter only kicks in if
+        # supplied, and they all reference indexed columns.
+        clauses = ["tenant = $1"]
+        params: list[Any] = [tenant]
+        if source is not None:
+            params.append(source)
+            clauses.append(f"source = ${len(params)}")
+        if classification is not None:
+            params.append(classification)
+            clauses.append(f"classification = ${len(params)}")
+        if freshness_state is not None:
+            params.append(freshness_state)
+            clauses.append(f"freshness_state = ${len(params)}")
+        where = " AND ".join(clauses)
+
+        list_sql = f"""
+        SELECT entity_id::text, tenant, source, source_uri, title,
+               classification, freshness_state, updated_at, tombstoned_at
+        FROM hive_mind.entity
+        WHERE {where}
+        ORDER BY updated_at DESC
+        LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+        """
+        count_sql = f"SELECT count(*) FROM hive_mind.entity WHERE {where}"
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(list_sql, *params, limit, offset)
+            total = await conn.fetchval(count_sql, *params)
+        return [dict(r) for r in rows], int(total or 0)
+
+    async def get_entity_with_lineage(
+        self, *, tenant: str, entity_id: str
+    ) -> dict[str, Any] | None:
+        """Single entity for the admin detail page (tombstoned rows included).
+
+        Returns the entity columns plus a `lineage` block with parent (if any)
+        and children (chunks under this entity, if any).
+        """
+        pool = self._require_pool()
+        entity_sql = """
+        SELECT entity_id::text, tenant, source, source_uri, source_revision,
+               parent_entity_id::text, title, body, content_hash, classification,
+               freshness_state, metadata, created_at, updated_at, ingested_at,
+               last_verified_at, tombstoned_at
+        FROM hive_mind.entity
+        WHERE tenant = $1 AND entity_id = $2
+        """
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(entity_sql, tenant, entity_id)
+            if row is None:
+                return None
+            data = dict(row)
+            # metadata comes back as a JSON string from asyncpg — decode for the
+            # response shape.
+            if isinstance(data.get("metadata"), str):
+                try:
+                    data["metadata"] = json.loads(data["metadata"])
+                except json.JSONDecodeError:
+                    data["metadata"] = {}
+            parent = None
+            if data.get("parent_entity_id"):
+                parent_row = await conn.fetchrow(
+                    """SELECT entity_id::text, title, source_uri
+                       FROM hive_mind.entity
+                       WHERE tenant = $1 AND entity_id = $2""",
+                    tenant,
+                    data["parent_entity_id"],
+                )
+                if parent_row is not None:
+                    parent = dict(parent_row)
+            children = await conn.fetch(
+                """SELECT entity_id::text, title, source_uri
+                   FROM hive_mind.entity
+                   WHERE tenant = $1 AND parent_entity_id = $2
+                   ORDER BY (metadata->>'chunk_index')::int NULLS LAST, source_uri
+                   LIMIT 500""",
+                tenant,
+                entity_id,
+            )
+            data["lineage"] = {
+                "parent": parent,
+                "children": [dict(c) for c in children],
+            }
+            return data
+
+    async def tombstone(self, *, tenant: str, entity_id: str) -> dict[str, Any] | None:
+        """Soft delete. Idempotent — re-tombstoning preserves the original timestamp."""
+        pool = self._require_pool()
+        sql = """
+        UPDATE hive_mind.entity
+        SET tombstoned_at = COALESCE(tombstoned_at, now())
+        WHERE tenant = $1 AND entity_id = $2
+        RETURNING entity_id::text, tenant, source, source_uri, title,
+                  classification, freshness_state, updated_at, tombstoned_at
+        """
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(sql, tenant, entity_id)
+        return dict(row) if row else None
+
     async def lexical_search(
         self, *, tenant: str, query: str, limit: int
     ) -> list[CatalogHit]:

@@ -44,4 +44,50 @@ if [ "$COUNT" -lt 1 ]; then
 fi
 echo "✓ $COUNT audit row(s) present"
 
+# ---- add-admin-vector-and-content smoke -----------------------------------
+
+say "Vector search: POST /search/vector"
+VS=$(curl -fsS -X POST "$PIPELINE_URL/search/vector" \
+  -H 'content-type: application/json' \
+  -d '{"query":"prompt caching","top_k":5}')
+echo "$VS" | head -c 600
+echo
+HITS=$(echo "$VS" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["hits"]))')
+if [ "$HITS" -lt 1 ]; then
+  echo "✗ vector search returned no hits"
+  exit 1
+fi
+echo "✓ vector search returned $HITS hit(s)"
+
+say "Entity list: GET /entities?limit=5"
+LIST=$(curl -fsS "$PIPELINE_URL/entities?limit=5")
+TOTAL=$(echo "$LIST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])')
+if [ "$TOTAL" -lt 1 ]; then
+  echo "✗ entity list reports no rows"
+  exit 1
+fi
+echo "✓ entity list reports $TOTAL row(s) total"
+
+say "Pick the first listed entity, tombstone it, verify timestamp"
+ID=$(echo "$LIST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["entity_id"])')
+echo "tombstoning $ID"
+TS=$(curl -fsS -X DELETE "$PIPELINE_URL/entities/$ID")
+echo "$TS"
+HAS_TS=$(echo "$TS" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("yes" if d.get("tombstoned_at") else "no")')
+if [ "$HAS_TS" != "yes" ]; then
+  echo "✗ tombstoned_at did not round-trip"
+  exit 1
+fi
+echo "✓ tombstone applied"
+
+say "Ingestion connectors via pipeline proxy"
+CONN=$(curl -fsS "$PIPELINE_URL/ingestion/connectors")
+echo "$CONN"
+HAS_GIT=$(echo "$CONN" | python3 -c 'import json,sys; print("yes" if any(c["name"]=="git" and c["supported"] for c in json.load(sys.stdin)) else "no")')
+if [ "$HAS_GIT" != "yes" ]; then
+  echo "✗ git connector not advertised as supported"
+  exit 1
+fi
+echo "✓ git connector advertised"
+
 say "Smoke test PASSED"

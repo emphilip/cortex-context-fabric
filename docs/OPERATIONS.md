@@ -35,18 +35,56 @@ A single `hive-mind.yaml` file is the source of truth. Environment variables ove
 
 ## Ingestion
 
-The thin MVP ships a single connector: `git`.
+A single connector ships today: `git`. Trigger an ingest from any of:
 
 ```bash
-# Ingest a public git repo into the catalog + vector index
+# 1. From the host
 make ingest-git REPO=https://github.com/anthropics/anthropic-cookbook
 
-# Or directly:
+# 2. From the admin UI
+open http://localhost:3000/ingestion   # use the "Run now" form
+
+# 3. From the pipeline API (which proxies to the ingestion service)
+curl -X POST http://localhost:8000/ingestion/git/run \
+  -H 'content-type: application/json' \
+  -d '{"repo_url":"https://github.com/anthropics/anthropic-cookbook"}'
+
+# 4. Direct CLI inside the ingestion container
 docker compose -f infra/compose/docker-compose.yml exec ingestion \
+  uv run --package hive-mind-ingestion \
   python -m hive_mind_ingestion.cli git <repo-url>
 ```
 
-Re-ingest is idempotent (entities are upserted by stable ID derived from `(tenant, source_uri)`).
+Re-ingest is idempotent (entities are upserted by stable ID derived from `(tenant, source_uri)`). Run history (from options 2 and 3) is in-memory inside the ingestion container — restarting clears it. A follow-up change adds durable history.
+
+## Vector search
+
+`POST /search/vector` runs the same embeddings + Qdrant path the retrieve pipeline uses but writes no audit row — it is admin/operator exploration. Hit it from the admin UI at `/vectors` or directly:
+
+```bash
+curl -X POST http://localhost:8000/search/vector \
+  -H 'content-type: application/json' \
+  -d '{"query":"prompt caching","top_k":20}'
+```
+
+Results are fused across every source collection by Reciprocal Rank Fusion. `top_k` is server-capped at 100.
+
+## Entity browse and tombstone
+
+Browse via the admin UI (`/entities` with filters) or directly:
+
+```bash
+# List with filters
+curl "http://localhost:8000/entities?source=git&classification=internal&limit=50"
+
+# Fetch a single entity with lineage (parent + chunks)
+curl http://localhost:8000/entities/<entity_id>
+
+# Soft delete (tombstone). Idempotent — re-tombstoning preserves the original timestamp.
+curl -X DELETE http://localhost:8000/entities/<entity_id>
+```
+
+Tombstoning sets `tombstoned_at` on the catalog row. The lexical leg of retrieval excludes tombstoned rows immediately. Qdrant points are NOT removed in this change — vector search continues to surface them so operators can see "what's there"; a future change pairs re-embed with vector-side cleanup.
 
 ## Swapping the embedding model
 

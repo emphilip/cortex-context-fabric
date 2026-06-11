@@ -13,6 +13,17 @@ def estimate_tokens(text: str, *, tokens_per_char: float = 0.25) -> int:
     return max(1, math.ceil(len(text) * tokens_per_char))
 
 
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[str]], *, k: int = 60
+) -> dict[str, float]:
+    """RRF fusion: combine multiple ranked lists into a single score map."""
+    scores: dict[str, float] = {}
+    for ranking in ranked_lists:
+        for rank, eid in enumerate(ranking):
+            scores[eid] = scores.get(eid, 0.0) + 1.0 / (k + rank + 1)
+    return scores
+
+
 def hash_context(fragments: list[dict]) -> str:
     """Deterministic hash of an ordered fragment list — feeds final_context_hash."""
     h = hashlib.sha256()

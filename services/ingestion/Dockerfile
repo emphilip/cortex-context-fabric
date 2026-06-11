@@ -21,4 +21,6 @@ RUN uv sync --no-dev --all-packages
 ENV HIVE_MIND_CONFIG=/app/hive-mind.yaml
 COPY hive-mind.yaml /app/hive-mind.yaml
 
-CMD ["sleep", "infinity"]
+EXPOSE 8100
+CMD ["uv", "run", "--package", "hive-mind-ingestion", "uvicorn", \
+     "hive_mind_ingestion.server:app", "--host", "0.0.0.0", "--port", "8100"]

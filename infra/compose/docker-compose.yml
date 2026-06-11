@@ -125,8 +125,13 @@ services:
       postgres: { condition: service_healthy }
       qdrant:   { condition: service_healthy }
       ollama:   { condition: service_healthy }
-    # No port — used via `docker compose exec ingestion ...`
-    command: ["sleep", "infinity"]
+    ports:
+      - "8100:8100"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8100/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     profiles: [dev]
 
   admin-ui:

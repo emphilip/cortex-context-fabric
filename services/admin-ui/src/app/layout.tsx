@@ -22,6 +22,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <strong>hive-mind</strong>
           <nav style={{ display: "flex", gap: 16 }}>
             <a href="/queries">Queries</a>
+            <a href="/vectors">Vectors</a>
+            <a href="/entities">Entities</a>
+            <a href="/ingestion">Ingestion</a>
           </nav>
         </header>
         <main style={{ padding: "16px 24px", maxWidth: 1200, margin: "0 auto" }}>{children}</main>

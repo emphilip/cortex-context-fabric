@@ -87,3 +87,93 @@ class IngestEvent(BaseModel):
     source: str
     source_uri: str
     content_hash: str
+
+
+# --- Admin: catalog read ---------------------------------------------------
+
+
+class EntityListItem(BaseModel):
+    entity_id: str
+    tenant: str
+    source: str
+    source_uri: str
+    title: str | None = None
+    classification: str
+    freshness_state: str
+    updated_at: datetime
+    tombstoned_at: datetime | None = None
+
+
+class EntityRef(BaseModel):
+    entity_id: str
+    title: str | None = None
+    source_uri: str
+
+
+class EntityLineage(BaseModel):
+    parent: EntityRef | None = None
+    children: list[EntityRef] = Field(default_factory=list)
+
+
+class Entity(EntityListItem):
+    body: str
+    content_hash: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    source_revision: str | None = None
+    parent_entity_id: str | None = None
+    created_at: datetime
+    ingested_at: datetime
+    last_verified_at: datetime
+    lineage: EntityLineage = Field(default_factory=EntityLineage)
+
+
+class EntityListResponse(BaseModel):
+    items: list[EntityListItem]
+    total: int
+    limit: int
+    offset: int
+
+
+# --- Admin: vector search --------------------------------------------------
+
+
+class VectorSearchHit(BaseModel):
+    entity_id: str
+    score: float
+    source: str
+    source_uri: str
+    title: str | None = None
+    classification: str = "internal"
+    snippet: str
+    collection: str | None = None
+
+
+class VectorSearchResponse(BaseModel):
+    hits: list[VectorSearchHit]
+    model: str
+    provider: str
+    tokens_in: int
+
+
+# --- Admin: ingestion ------------------------------------------------------
+
+
+class ConnectorStatus(BaseModel):
+    name: str
+    supported: bool
+    reason: str | None = None
+
+
+IngestionRunStatus = Literal["queued", "running", "succeeded", "failed"]
+
+
+class IngestionRun(BaseModel):
+    run_id: str
+    connector: str
+    repo: str | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: IngestionRunStatus
+    parents: int | None = None
+    chunks: int | None = None
+    error: str | None = None

@@ -8,10 +8,11 @@ Hive Mind is a dockerized set of services that lets a single person or an organi
 
 ## Status
 
-The **thin MVP** (first end-to-end working slice) is implemented and in compose. The full v0 vision is broader and is being delivered through a series of OpenSpec changes:
+The **thin MVP** (first end-to-end working slice) is implemented and in compose, plus an admin UI for vector search, entity inspection, and ingestion control. The full v0 vision is broader and is being delivered through a series of OpenSpec changes:
 
-- **[`bootstrap-thin-mvp`](./openspec/changes/bootstrap-thin-mvp/proposal.md)** — the **authoritative contract for the v0 stack that exists today**: TS MCP server, 4-stage retrieval pipeline (identity → hybrid retrieval → assemble → return), git ingestion, Storybook-scaffolded admin UI with a query review page, immutable audit log, local Ollama embeddings, Docker Compose dev profile. Strict-validated, 87 tasks.
-- **[`add-foundation`](./openspec/changes/add-foundation/proposal.md)** — the **full v0 vision** spanning 12 capabilities (knowledge graph with named relationships, intent classifier, rerank+compress, OPA, additional connectors, enrichment workers, full admin UI, OTel/Tempo/Grafana stack, etc.). Each deferred capability ships as its own follow-up change that MODIFIES the requirements `bootstrap-thin-mvp` set.
+- **[`bootstrap-thin-mvp`](./openspec/changes/bootstrap-thin-mvp/proposal.md)** — the authoritative contract for the original v0 stack: TS MCP server, 4-stage retrieval pipeline, git ingestion CLI, query review page, immutable audit log, local Ollama embeddings, Docker Compose dev profile.
+- **[`add-admin-vector-and-content`](./openspec/changes/add-admin-vector-and-content/proposal.md)** — admin UI surfaces for **vector search**, **entity browse + detail (with tombstone)**, and **ingestion control**. Pipeline gains entity read endpoints, a vector-search endpoint, and ingestion proxies; ingestion gains an HTTP surface alongside the CLI. Strict-validated, 44 tasks.
+- **[`add-foundation`](./openspec/changes/add-foundation/proposal.md)** — the **full v0 vision** spanning 12 capabilities (knowledge graph with named relationships, intent classifier, rerank+compress, OPA, additional connectors, enrichment workers, full admin UI, OTel/Tempo/Grafana stack, etc.). Each deferred capability ships as its own follow-up change that MODIFIES the requirements earlier changes set.
 
 ## OpenSpec is the contract — strict requirement
 
@@ -42,12 +43,22 @@ curl -sS -X POST http://localhost:8000/retrieve \
 # 4. Open the admin UI: http://localhost:3000/queries
 ```
 
+The admin UI ships four pages:
+
+| Route | What it does |
+|---|---|
+| `/queries` | Recent retrievals + audit detail (tokens, fragments, principal, latency) |
+| `/vectors` | Search the catalogue by meaning. Top-K results with score, source, snippet |
+| `/entities` | Filterable, paginated entity browser; click through to detail, lineage, and a tombstone action |
+| `/ingestion` | Connector list + last-run summaries; "Run now" form for git ingests |
+
 ## Where to read
 
 | Document | What's there |
 |---|---|
 | [`openspec/project.md`](./openspec/project.md) | Vision, stack, conventions |
-| [`openspec/changes/bootstrap-thin-mvp/`](./openspec/changes/bootstrap-thin-mvp/) | The v0 stack that exists today (proposal, design, spec deltas, tasks) |
+| [`openspec/changes/bootstrap-thin-mvp/`](./openspec/changes/bootstrap-thin-mvp/) | The original thin-MVP contract |
+| [`openspec/changes/add-admin-vector-and-content/`](./openspec/changes/add-admin-vector-and-content/) | Vector explorer + entity browser + ingestion control |
 | [`openspec/changes/add-foundation/`](./openspec/changes/add-foundation/) | The full v0 vision (12 capabilities) |
 | [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) | Operating the stack — swapping embedding models, env overrides, etc. |
 
