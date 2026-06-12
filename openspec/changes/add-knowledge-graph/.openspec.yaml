@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-06-11
+goal: Hive Mind learns how concepts relate to each other from ingested content;
+  operators review and edit the graph through the admin UI.
