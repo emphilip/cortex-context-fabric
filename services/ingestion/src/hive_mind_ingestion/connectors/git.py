@@ -1,8 +1,12 @@
-"""Git connector — clones a repo into a temp dir, walks text files, emits docs.
+"""Git connector — clones a repo into a temp dir, walks files via graphifyy,
+emits documents.
 
-Thin MVP intentionally uses `git` via subprocess rather than libgit2 so we
-don't need an extra system dep. A future change swaps to pygit2 for
-incremental sync via list_changes(since).
+The discovery loop delegates to `graphify.collect_files`, which knows 80+
+file extensions across 28 tree-sitter-supported languages and honours a
+`.graphifyignore` file in the cloned repo. Our responsibility is the clone,
+the stable-id derivation, and the GitDocument shape — those are unchanged.
+
+See openspec/changes/adopt-graphifyy/specs/ingestion/spec.md for the contract.
 """
 
 from __future__ import annotations
@@ -16,21 +20,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
+from graphify import collect_files
+
 log = logging.getLogger(__name__)
 
-# File extensions we ingest as text in the MVP. Code + docs + config.
+# Non-code text extensions we ingest with the paragraph chunker. Code
+# extensions are detected by graphifyy's dispatch table at pipeline-runner
+# time; this set is the fallback / additional surface for prose-y files
+# graphifyy doesn't (and shouldn't) parse.
 TEXT_EXTS = {
     ".md", ".markdown", ".rst", ".txt",
-    ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-    ".go", ".rs", ".java", ".kt", ".rb", ".php", ".cs",
-    ".c", ".h", ".cc", ".cpp", ".hpp",
-    ".sql", ".yaml", ".yml", ".toml", ".json", ".ini",
-    ".sh", ".bash", ".zsh", ".fish", ".ps1",
+    ".yaml", ".yml", ".toml", ".json", ".ini",
     ".html", ".css", ".scss", ".sass",
 }
 
-MAX_FILE_BYTES = 1_000_000   # 1 MB cap per file
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", ".next", ".cache"}
+MAX_FILE_BYTES = 1_000_000  # 1 MB cap per file
 
 
 @dataclass
@@ -71,20 +75,50 @@ def clone(repo_url: str, dest: Path) -> str:
     return sha
 
 
+def _discover_files(repo_path: Path) -> list[Path]:
+    """File discovery via graphifyy + our text-ext fallback.
+
+    `collect_files` covers code (Python, TS, Go, Rust, Kotlin, Swift, Elixir,
+    Lua, Zig, Verilog, ...) including ~80 extensions we don't enumerate. The
+    `TEXT_EXTS` fallback catches Markdown, plain text, YAML, JSON, etc. that
+    graphifyy doesn't parse but we still want to embed.
+    """
+    code_files = collect_files(repo_path)
+    text_files = [
+        p
+        for p in repo_path.rglob("*")
+        if p.is_file() and p.suffix.lower() in TEXT_EXTS
+    ]
+    # Dedupe — `collect_files` may include some files (e.g. .json) that also
+    # appear in TEXT_EXTS. Code path wins; the runner dispatches by extension.
+    seen = {p.resolve() for p in code_files}
+    merged = list(code_files)
+    for p in text_files:
+        if p.resolve() not in seen:
+            merged.append(p)
+    return merged
+
+
 def walk_repo(
     *, tenant: str, repo_url: str, repo_path: Path, revision: str
 ) -> Iterator[GitDocument]:
-    """Walk the cloned repo and yield documents for each text file."""
+    """Walk the cloned repo via graphifyy + text fallback, yield GitDocuments.
+
+    Per-file errors (unreadable, non-utf8, oversize) skip the offending file
+    with a structured log and continue the iteration — the ingest must not
+    fail on a single bad file.
+    """
     repo_name = repo_url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-    for path in repo_path.rglob("*"):
-        if not path.is_file():
-            continue
-        # Skip ignored directories.
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
-        if path.suffix.lower() not in TEXT_EXTS:
-            continue
+    try:
+        paths = _discover_files(repo_path)
+    except Exception as exc:  # noqa: BLE001 — best-effort whole-repo discovery
+        log.error("file discovery failed for %s: %s", repo_path, exc)
+        return
+
+    for path in paths:
         try:
+            if not path.is_file():
+                continue
             data = path.read_bytes()
         except OSError as exc:
             log.warning("skip %s: %s", path, exc)

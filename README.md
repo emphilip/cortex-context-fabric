@@ -14,6 +14,10 @@ The **thin MVP** (first end-to-end working slice) is implemented and in compose,
 - **[`add-admin-vector-and-content`](./openspec/changes/add-admin-vector-and-content/proposal.md)** — admin UI surfaces for **vector search**, **entity browse + detail (with tombstone)**, and **ingestion control**. Pipeline gains entity read endpoints, a vector-search endpoint, and ingestion proxies; ingestion gains an HTTP surface alongside the CLI. Strict-validated, 44 tasks.
 - **[`add-foundation`](./openspec/changes/add-foundation/proposal.md)** — the **full v0 vision** spanning 12 capabilities (knowledge graph with named relationships, intent classifier, rerank+compress, OPA, additional connectors, enrichment workers, full admin UI, OTel/Tempo/Grafana stack, etc.). Each deferred capability ships as its own follow-up change that MODIFIES the requirements earlier changes set.
 
+## Credits
+
+Code-side ingestion uses [graphifyy](https://github.com/safishamsi/graphify) (MIT) for AST-level file discovery + symbol extraction across 28 tree-sitter languages. See `openspec/changes/adopt-graphifyy/` for the integration contract.
+
 ## OpenSpec is the contract — strict requirement
 
 **Every feature, deviation, or course-correction goes through the OpenSpec change workflow before code is written.** New work starts with `openspec new change <name>`, then proposal → design + specs → tasks → strict-validate, then implementation. Inline annotations or undocumented pivots are not acceptable.

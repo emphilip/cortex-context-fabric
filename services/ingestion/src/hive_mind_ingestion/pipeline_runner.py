@@ -1,18 +1,24 @@
-"""Ingestion runner: takes a stream of GitDocuments, chunks them, embeds with
-Ollama, upserts into Postgres + Qdrant."""
+"""Ingestion runner: takes a stream of GitDocuments, dispatches each file
+between the symbol chunker (code) and the paragraph chunker (text), embeds
+chunks via Ollama, upserts catalog rows + Qdrant points, and writes the
+code graph for code files."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Iterable
+from pathlib import Path
 
 import httpx
-from hive_mind_shared import HiveMindConfig
+from hive_mind_shared import HiveMindConfig, setup_otel
+from opentelemetry import trace
 
-from hive_mind_ingestion.chunking import chunk_text
+from hive_mind_ingestion.chunking import chunk_code_by_symbols, chunk_text, is_code_path
 from hive_mind_ingestion.connectors.git import GitDocument
+from hive_mind_ingestion.graph_writer import write_code_graph
 from hive_mind_pipeline.providers import OllamaEmbeddings
 from hive_mind_pipeline.storage.catalog import CatalogStore
 from hive_mind_pipeline.storage.vector import VectorIndex
@@ -24,6 +30,7 @@ async def ingest_documents(
     docs: Iterable[GitDocument], *, cfg: HiveMindConfig
 ) -> tuple[int, int]:
     """Ingest the given documents. Returns (parents, chunks) counts."""
+    tracer = setup_otel("hive-mind-ingestion", cfg.telemetry.service_namespace)
     catalog = CatalogStore(cfg.postgres.url)
     vector = VectorIndex(
         url=cfg.qdrant.url,
@@ -43,7 +50,7 @@ async def ingest_documents(
         await vector.ensure_collection("git")
         for doc in docs:
             parents += 1
-            # Write parent entity
+            # Write parent entity (the whole file row).
             await catalog.insert_entity(
                 tenant=cfg.tenant,
                 entity_id=doc.entity_id,
@@ -56,44 +63,85 @@ async def ingest_documents(
                 classification="internal",
                 metadata=doc.metadata,
             )
-            # Chunk + embed + upsert vector points
-            for ch in chunk_text(doc.body):
-                chunk_id = _chunk_id(doc.entity_id, ch.index)
+
+            path = Path(doc.metadata.get("path", doc.title))
+            code = is_code_path(path)
+
+            if code:
+                # Symbol-chunk + write the code graph. Failures fall back to
+                # paragraph chunking and skip the graph for that file — the
+                # ingest does not abort.
+                chunks, code_graph = await _extract_code(tracer, doc, path)
+            else:
+                chunks = chunk_text(doc.body)
+                code_graph = None
+
+            for ch_index, ch in enumerate(chunks):
+                chunk_id = _chunk_id(doc, ch, ch_index, is_code=code)
+                meta = {**doc.metadata, **ch.metadata, "chunk_index": ch_index}
+                fragment_uri = (
+                    f"{doc.source_uri}#symbol={ch.metadata['symbol_id']}"
+                    if ch.metadata.get("symbol_id")
+                    else f"{doc.source_uri}#chunk={ch_index}"
+                )
+                title_suffix = (
+                    f" :: {ch.metadata['symbol_id']}"
+                    if ch.metadata.get("symbol_id")
+                    else f" (chunk {ch_index})"
+                )
                 await catalog.insert_entity(
                     tenant=cfg.tenant,
                     entity_id=chunk_id,
                     source=doc.source,
-                    source_uri=f"{doc.source_uri}#chunk={ch.index}",
+                    source_uri=fragment_uri,
                     source_revision=doc.source_revision,
                     parent_entity_id=doc.entity_id,
-                    title=f"{doc.title} (chunk {ch.index})",
+                    title=f"{doc.title}{title_suffix}",
                     body=ch.text,
                     content_hash=doc.content_hash,
                     classification="internal",
-                    metadata={**doc.metadata, "chunk_index": ch.index},
+                    metadata=meta,
                 )
                 try:
                     emb = await embeddings.embed(ch.text)
                 except httpx.HTTPError as exc:
-                    log.error("embed failed for %s chunk %d: %s", doc.source_uri, ch.index, exc)
+                    log.error("embed failed for %s chunk %d: %s", doc.source_uri, ch_index, exc)
                     continue
+                payload = {
+                    "tenant": cfg.tenant,
+                    "entity_id": chunk_id,
+                    "parent_entity_id": doc.entity_id,
+                    "source": "git",
+                    "source_uri": doc.source_uri,
+                    "title": doc.title,
+                    "text": ch.text,
+                    "classification": "internal",
+                    "chunk_index": ch_index,
+                }
+                if ch.metadata.get("symbol_id"):
+                    payload["symbol_id"] = ch.metadata["symbol_id"]
                 await vector.upsert(
                     source="git",
                     entity_id=chunk_id,
                     vector=emb.vector,
-                    payload={
-                        "tenant": cfg.tenant,
-                        "entity_id": chunk_id,
-                        "parent_entity_id": doc.entity_id,
-                        "source": "git",
-                        "source_uri": doc.source_uri,
-                        "title": doc.title,
-                        "text": ch.text,
-                        "classification": "internal",
-                        "chunk_index": ch.index,
-                    },
+                    payload=payload,
                 )
                 chunks_total += 1
+
+            # Persist the graph for code files. Best-effort — a graph write
+            # failure must NOT roll back the chunk inserts above.
+            if code and code_graph is not None:
+                try:
+                    await write_code_graph(
+                        catalog=catalog,
+                        tenant=cfg.tenant,
+                        file_entity_id=doc.entity_id,
+                        graphify_result=code_graph,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "graph_writer failed for %s: %s", doc.source_uri, exc
+                    )
     finally:
         await catalog.close()
         await vector.close()
@@ -101,9 +149,74 @@ async def ingest_documents(
     return parents, chunks_total
 
 
-def _chunk_id(parent_id: str, index: int) -> str:
-    ns = uuid.UUID("6e3a4d1e-0000-0000-0000-000000000002")
-    return str(uuid.uuid5(ns, f"{parent_id}:{index}"))
+async def _extract_code(
+    tracer: trace.Tracer, doc: GitDocument, path: Path
+) -> tuple[list, dict | None]:
+    """Run the symbol chunker AND capture the raw graphify result.
+
+    Wrapped in an OTel span (`pipeline.graph_extract_code`) with zero token
+    counts so observability tooling sees the deterministic extractor.
+    Failures fall back to text chunking for embedding and skip the graph.
+    """
+    import graphify
+    import graphify.extract as gex
+
+    start = time.perf_counter()
+    with tracer.start_as_current_span("pipeline.graph_extract_code") as span:
+        span.set_attribute("model", "graphifyy")
+        span.set_attribute("provider", "graphifyy")
+        span.set_attribute("extractor_version", f"graphifyy/{getattr(graphify, '__version__', '0.0.0')}")
+        span.set_attribute("tokens_in", 0)
+        span.set_attribute("tokens_out", 0)
+        try:
+            # We pass a real path to graphify — but the file may live in a temp
+            # dir we've already destroyed (the git connector yields documents
+            # eagerly). Re-materialise the body to a tmp file if the path is
+            # gone. Cheap: the same body is already in memory.
+            if not path.exists():
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(
+                    "w", suffix=path.suffix, delete=False, encoding="utf-8"
+                ) as fp:
+                    fp.write(doc.body)
+                    use_path = Path(fp.name)
+            else:
+                use_path = path
+            graphify_result = gex.extract([use_path], parallel=False)
+            chunks = chunk_code_by_symbols(use_path, doc.body)
+            span.set_attribute("symbols", len(graphify_result.get("nodes", [])))
+            span.set_attribute("chunks", len(chunks))
+        except Exception as exc:  # noqa: BLE001 — best-effort per-file
+            log.warning("graphifyy failed for %s: %s; using text chunker", doc.source_uri, exc)
+            span.record_exception(exc)
+            return chunk_text(doc.body), None
+        span.set_attribute("latency_ms", int((time.perf_counter() - start) * 1000))
+        return chunks, graphify_result
+
+
+_CHUNK_NS = uuid.UUID("6e3a4d1e-0000-0000-0000-000000000002")
+_SYMBOL_NS = uuid.UUID("6e3a4d1e-0000-0000-0000-000000000003")
+
+
+def _chunk_id(doc: GitDocument, ch, ch_index: int, *, is_code: bool) -> str:
+    """Stable chunk id derivation.
+
+    Text chunks: `uuid5(_CHUNK_NS, "{parent_id}:{index}")`.
+    Symbol chunks: `uuid5(_SYMBOL_NS, "{parent_id}:{symbol_id}[:{index}]")` —
+        the trailing index is used only when a single symbol was paragraph-
+        split (so each sub-chunk gets a unique id).
+    """
+    symbol_id = ch.metadata.get("symbol_id") if ch.metadata else None
+    if is_code and symbol_id:
+        # Big symbols get split — disambiguate via index when `split=True`.
+        key = (
+            f"{doc.entity_id}:{symbol_id}:{ch_index}"
+            if ch.metadata.get("split")
+            else f"{doc.entity_id}:{symbol_id}"
+        )
+        return str(uuid.uuid5(_SYMBOL_NS, key))
+    return str(uuid.uuid5(_CHUNK_NS, f"{doc.entity_id}:{ch_index}"))
 
 
 async def run(repo_url: str, cfg: HiveMindConfig) -> tuple[int, int]:

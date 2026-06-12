@@ -9,6 +9,10 @@ dependencies = [
   "qdrant-client>=1.12",
   "httpx>=0.27",
   "click>=8.1",
+  # Code-side ingestion: graphifyy provides language-aware file discovery
+  # (collect_files) + tree-sitter symbol extraction (extract). See
+  # openspec/changes/adopt-graphifyy/ for the contract.
+  "graphifyy>=0.8,<0.9",
 ]
 
 [project.optional-dependencies]

@@ -33,6 +33,15 @@ A single `hive-mind.yaml` file is the source of truth. Environment variables ove
 | `HIVE_MIND__RETRIEVAL__DEFAULT_TOP_K` | `20` | Per-leg retrieval limit. |
 | `HIVE_MIND__RETRIEVAL__DEFAULT_TOKEN_BUDGET` | `4000` | Assemble-stage hard cap. |
 
+## Extraction model
+
+Two paths share the same chunk → embed → upsert orchestration but differ on what becomes a chunk:
+
+- **Code files** (`.py`, `.ts`, `.go`, `.rs`, `.kt`, ... — anything in graphifyy's tree-sitter dispatch except markdown/yaml/json/html) are processed by `chunk_code_by_symbols`. Each AST symbol (class / function / method) becomes one chunk. The same graphifyy call produces the **deterministic code graph** that lands in `hive_mind.concept` / `hive_mind.relationship_edge` as `confirmed` state. Powered by [graphifyy](https://github.com/safishamsi/graphify).
+- **Text files** (`.md`, `.yaml`, `.toml`, `.json`, ...) flow through `chunk_text` (paragraph splitter). Future LLM-based concept extraction for text content lands with the `add-knowledge-graph` change.
+
+The extractor is observable via the OTel span `pipeline.graph_extract_code` (tokens=0; latency tracked) and writes to the same vector store as text chunks.
+
 ## Ingestion
 
 A single connector ships today: `git`. Trigger an ingest from any of:

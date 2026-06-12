@@ -90,4 +90,16 @@ if [ "$HAS_GIT" != "yes" ]; then
 fi
 echo "✓ git connector advertised"
 
+say "Graph populated by graphifyy: at least 5 concepts and 5 edges"
+PSQL="docker compose -f $ROOT/infra/compose/docker-compose.yml --env-file $ROOT/.env exec -T postgres psql -U hive -d hivemind -tAc"
+CONCEPT_COUNT=$($PSQL "SELECT count(*) FROM hive_mind.concept WHERE state='confirmed'" | tr -d '[:space:]')
+EDGE_COUNT=$($PSQL "SELECT count(*) FROM hive_mind.relationship_edge" | tr -d '[:space:]')
+SYMBOL_COUNT=$($PSQL "SELECT count(*) FROM hive_mind.entity WHERE metadata ? 'symbol_id'" | tr -d '[:space:]')
+echo "concepts: $CONCEPT_COUNT · edges: $EDGE_COUNT · symbol_chunks: $SYMBOL_COUNT"
+if [ "${CONCEPT_COUNT:-0}" -lt 5 ] || [ "${EDGE_COUNT:-0}" -lt 5 ] || [ "${SYMBOL_COUNT:-0}" -lt 5 ]; then
+  echo "✗ code graph not populated (concepts=$CONCEPT_COUNT, edges=$EDGE_COUNT, symbol_chunks=$SYMBOL_COUNT)"
+  exit 1
+fi
+echo "✓ code graph populated"
+
 say "Smoke test PASSED"

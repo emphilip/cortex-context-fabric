@@ -73,3 +73,48 @@ def test_walk_repo_document_shape(fake_repo: Path):
     assert readme.title == "README.md"
     assert readme.content_hash  # populated
     assert "world" in readme.body
+
+
+def test_walk_repo_yields_languages_beyond_old_allowlist(tmp_path: Path):
+    """Our hand-rolled TEXT_EXTS didn't list .kt or .swift; graphifyy does."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "App.kt").write_text("class App { fun main() {} }\n")
+    (repo / "View.swift").write_text("struct View {}\n")
+    (repo / "README.md").write_text("# hi\n")
+
+    docs = list(
+        walk_repo(
+            tenant="t",
+            repo_url="https://example.com/x.git",
+            repo_path=repo,
+            revision="abc",
+        )
+    )
+    paths = sorted(d.metadata["path"] for d in docs)
+    assert "App.kt" in paths
+    assert "View.swift" in paths
+    assert "README.md" in paths
+
+
+def test_walk_repo_honours_graphifyignore(tmp_path: Path):
+    """Files matched by .graphifyignore must not be yielded."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "vendor").mkdir()
+    (repo / "vendor" / "lib.py").write_text("def vendored(): pass\n")
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("def app(): pass\n")
+    (repo / ".graphifyignore").write_text("vendor/\n")
+
+    docs = list(
+        walk_repo(
+            tenant="t",
+            repo_url="https://example.com/x.git",
+            repo_path=repo,
+            revision="abc",
+        )
+    )
+    paths = [d.metadata["path"] for d in docs]
+    assert "src/app.py" in paths
+    assert all("vendor" not in p for p in paths)
