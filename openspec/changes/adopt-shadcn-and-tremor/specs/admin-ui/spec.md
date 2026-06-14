@@ -79,8 +79,6 @@ The Storybook instance SHALL compile Tailwind styles and provide a global toolba
 - **WHEN** a reviewer opens any component story and flips the theme toolbar control
 - **THEN** the story re-renders with the selected theme's tokens applied
 
-## MODIFIED Requirements
-
 ### Requirement: Existing pages and components restyled without behavioural change
 
 All existing routes (`/`, `/queries`, `/queries/[id]`, `/entities`, `/entities/[id]`, `/ingestion`, `/vectors`, `/graph`) and all 17 existing authored components SHALL be restyled with Tailwind + kit primitives. Data fetching, proxy routes, URL parameters, filters, pagination, and actions MUST behave identically to before this change; vitest suites MUST pass unmodified except for assertions that targeted inline styles or class names.
