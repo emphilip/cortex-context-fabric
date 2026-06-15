@@ -216,7 +216,12 @@ All existing routes (`/`, `/queries`, `/queries/[id]`, `/entities`, `/entities/[
 
 ### Requirement: Interactive graph exploration view
 
-The `/graph` page SHALL provide a force-directed graph exploration view ("Map" tab) that renders concepts as nodes and relationships as edges, seeded from a focused concept and expandable by navigation. The view SHALL consume the existing `GET /graph/traverse` endpoint via the graph proxy and MUST NOT require any new pipeline route, schema, or wire-type change. The existing Concepts, Candidate review, and Vocabulary tabs and their behaviour MUST remain unchanged.
+The `/graph` page SHALL provide a force-directed graph exploration view ("Map" tab) that renders concepts as nodes and relationships as edges, seeded from a focused concept and expandable by navigation. The Map view SHALL be the **default** view of the `/graph` page when no `tab` query parameter is given. The view SHALL consume the existing `GET /graph/traverse` endpoint via the graph proxy and MUST NOT require any new pipeline route, schema, or wire-type change. The existing Concepts, Candidate review, and Vocabulary tabs and their behaviour MUST remain unchanged and reachable.
+
+#### Scenario: Map is the default graph view
+
+- **WHEN** an operator opens `/graph` with no `tab` query parameter
+- **THEN** the Map view is rendered (seeded from a default concept) rather than the Concepts list, while the Concepts, Candidate review, and Vocabulary tabs remain reachable via their tab links
 
 #### Scenario: Map tab renders the focused neighbourhood
 
