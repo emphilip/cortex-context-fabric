@@ -13,9 +13,18 @@ async function send(path: string, method: string, body: object) {
   });
 }
 
-export function ConceptActions({ conceptId }: { conceptId: string }) {
+export function ConceptActions({
+  conceptId,
+  layout = "row",
+}: {
+  conceptId: string;
+  layout?: "row" | "menu";
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const menu = layout === "menu";
+  const wrapClass = menu ? "flex flex-col gap-1" : "mb-3 flex gap-2";
+  const btnClass = menu ? "w-full justify-start" : undefined;
   async function transition(action: string) {
     setBusy(true);
     await send(`concepts/${conceptId}/${action}`, "POST", { reason: "admin review" });
@@ -43,11 +52,11 @@ export function ConceptActions({ conceptId }: { conceptId: string }) {
     router.refresh();
   }
   return (
-    <div className="mb-3 flex gap-2">
-      <Button size="sm" disabled={busy} onClick={() => transition("promote")}>Promote</Button>
-      <Button size="sm" variant="secondary" disabled={busy} onClick={() => transition("demote")}>Demote</Button>
-      <Button size="sm" variant="outline" disabled={busy} onClick={merge}>Merge into…</Button>
-      <Button size="sm" variant="destructive" disabled={busy} onClick={tombstone}>Tombstone</Button>
+    <div className={wrapClass}>
+      <Button size="sm" className={btnClass} disabled={busy} onClick={() => transition("promote")}>Promote</Button>
+      <Button size="sm" variant="secondary" className={btnClass} disabled={busy} onClick={() => transition("demote")}>Demote</Button>
+      <Button size="sm" variant="outline" className={btnClass} disabled={busy} onClick={merge}>Merge into…</Button>
+      <Button size="sm" variant="destructive" className={btnClass} disabled={busy} onClick={tombstone}>Tombstone</Button>
     </div>
   );
 }

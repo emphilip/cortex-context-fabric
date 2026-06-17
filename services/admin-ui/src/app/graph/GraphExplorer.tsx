@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConceptDetail as ConceptDetailType } from "@cortex/shared";
 import type { ForceGraphMethods, NodeObject, LinkObject } from "react-force-graph-2d";
 import { ConceptDetail } from "@/components/ConceptDetail";
+import { ConceptSearch } from "@/components/ConceptSearch";
 import { Button } from "@/components/ui/button";
 import { buildGraphModel, labelVisibility, type GraphNode, type TraverseData } from "./graph-model";
 
@@ -199,10 +200,14 @@ export function GraphExplorer({
     [],
   );
 
-  const onNodeClick = useCallback((node: FgNode) => {
-    setSelectedId(node.id);
-    setFocus(node.id);
+  // Focusing a concept (node click, search pick, or neighbour navigation) both
+  // selects it (loads detail) and re-seeds the traversal around it.
+  const focusConcept = useCallback((conceptId: string) => {
+    setSelectedId(conceptId);
+    setFocus(conceptId);
   }, []);
+
+  const onNodeClick = useCallback((node: FgNode) => focusConcept(node.id), [focusConcept]);
 
   const onEngineStop = useCallback(() => {
     fgRef.current?.zoomToFit(400, 60);
@@ -240,6 +245,9 @@ export function GraphExplorer({
           </Button>
           {loading ? <span className="text-xs text-muted-foreground">Loading…</span> : null}
           {error ? <span className="text-xs text-destructive">{error}</span> : null}
+          <div className="ml-auto">
+            <ConceptSearch onSelect={focusConcept} />
+          </div>
         </div>
         <div
           ref={containerRef}
@@ -279,7 +287,7 @@ export function GraphExplorer({
       </div>
       {detail ? (
         <aside className="w-full shrink-0 lg:w-80">
-          <ConceptDetail concept={detail} />
+          <ConceptDetail concept={detail} onNavigate={focusConcept} />
         </aside>
       ) : null}
     </div>
