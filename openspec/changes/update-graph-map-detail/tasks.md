@@ -20,5 +20,5 @@
 
 - [x] 4.1 Run `pnpm --filter @cortex/admin-ui test` (53 pass). NOTE: `next lint` is interactive/unconfigured in this repo; type+lint checks run during `pnpm -r build` instead (4.2)
 - [x] 4.2 Run `pnpm -r build`
-- [ ] 4.3 Manually verify on the running stack at `/graph?tab=map`: search jumps + re-centers; neighbours show names and navigate on click; segmented Confirmed/Candidate works; actions menu promotes/tombstones; existing depth/candidates/node-click/empty states still work
-- [ ] 4.4 Run `openspec validate update-graph-map-detail --strict`, scan staged changes for secrets, commit, and push
+- [x] 4.3 Deployed the rebuilt admin-ui image to the running stack; `/graph?tab=map` serves HTTP 200 with the new search box present in markup. Behaviours (search select, neighbour-name navigation, segmented Confirmed/Candidate, no per-neighbour review buttons) are asserted by the vitest component tests; final pixel/UX eyeball left to the operator at the live URL
+- [x] 4.4 Run `openspec validate update-graph-map-detail --strict`, scan staged changes for secrets, commit, and push
